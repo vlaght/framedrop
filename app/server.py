@@ -28,6 +28,7 @@ UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "/uploads"))
 CERT_DIR = Path(os.getenv("CERT_DIR", "/certs"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "info").upper()
 DASHBOARD_PORT = int(os.getenv("DASHBOARD_PORT", "3000"))
+PER_CAMERA_DIRS = os.getenv("PER_CAMERA_DIRS", "false").lower() in ("1", "true", "yes")
 
 logging.basicConfig(
     level=LOG_LEVEL,
@@ -256,18 +257,23 @@ async def auth_token(request: Request):
 
     access_token = str(uuid.uuid4())
     refresh_token = str(uuid.uuid4())
+    client_id = str(form.get("client_id", "unknown"))
 
     if "device_code" in grant_type:
         dc = str(form.get("device_code", ""))
         if dc not in device_codes:
             return JSONResponse({"error": "invalid_grant"}, status_code=400)
+        client_id = device_codes[dc]["client_id"]
         logger.info(f"Camera paired successfully  code={device_codes[dc]['user_code']}")
     elif "refresh_token" in grant_type:
         logger.info("Token refreshed")
     else:
         logger.warning(f"Unknown grant_type: {grant_type}")
 
-    tokens[access_token] = {"created_at": datetime.now(timezone.utc).isoformat()}
+    tokens[access_token] = {
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "client_id": client_id,
+    }
 
     return JSONResponse({
         "access_token": access_token,
@@ -306,6 +312,9 @@ async def create_asset(request: Request):
     """Camera creates an asset and receives upload URLs."""
     body = await request.json()
 
+    _, _, bearer = request.headers.get("authorization", "").partition(" ")
+    client_id = tokens.get(bearer, {}).get("client_id", "unknown")
+
     asset_id = str(uuid.uuid4())
     name = Path(body.get("name", f"unknown_{asset_id}")).name or f"unknown_{asset_id}"
     filesize = body.get("filesize")
@@ -328,6 +337,7 @@ async def create_asset(request: Request):
     assets[asset_id] = {
         "id": asset_id,
         "name": name,
+        "client_id": client_id,
         "filesize": filesize,
         "filetype": filetype,
         "num_parts": num_parts,
@@ -448,6 +458,11 @@ async def catch_all_v2(path: str, request: Request):
 #  Helpers
 # ===================================================================
 
+def _safe_dir_name(value: str) -> str:
+    """Reduce a camera-supplied identifier to a single safe path component."""
+    return "".join(c for c in value if c.isascii() and (c.isalnum() or c in "-_"))[:64] or "unknown"
+
+
 def _assemble_file(asset_id: str):
     """Reassemble uploaded parts into the final file."""
     asset = assets[asset_id]
@@ -458,9 +473,11 @@ def _assemble_file(asset_id: str):
     if not parts_dir.exists():
         return
 
-    # Organize by date
-    today = datetime.now().strftime("%Y-%m-%d")
-    output_dir = UPLOAD_DIR / today
+    # Organize by date, and by camera when PER_CAMERA_DIRS is on
+    folder =datetime.now().strftime("%Y-%m-%d")
+    if PER_CAMERA_DIRS:
+        folder = f"{_safe_dir_name(asset['client_id'])}/{folder}"
+    output_dir = UPLOAD_DIR / folder
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Handle filename conflicts
@@ -490,7 +507,7 @@ def _assemble_file(asset_id: str):
     upload_log.insert(0, {
         "name": output_path.name,
         "size": file_size,
-        "directory": today,
+        "directory": folder,
         "type": asset.get("filetype", ""),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
