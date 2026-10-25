@@ -15,6 +15,7 @@ services:
       - CERT_DIR=/certs
       - DASHBOARD_PORT=3000
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      - PER_CAMERA_DIRS=${PER_CAMERA_DIRS:-false}
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3000/api/status')"]
       interval: 30s

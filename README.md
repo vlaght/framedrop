@@ -215,6 +215,27 @@ uploads/
 Full-resolution files are uploaded — the same files written to your memory
 card. The camera never deletes files from the card; framedrop receives copies.
 
+### One folder per camera
+
+If several cameras upload to the same server, set `PER_CAMERA_DIRS=true` to
+put each camera in its own folder, named after the device ID it sends when
+pairing (a Fujifilm X100VI, for example, sends its body serial number):
+
+```
+uploads/
+├── 4BL00195/
+│   └── 2025-03-15/
+│       └── DSCF0001.JPG
+└── 6CC01234/
+    └── 2025-03-15/
+        └── IMG_0001.CR3
+```
+
+It is off by default, so existing setups keep the layout above. Only the
+characters `A-Z a-z 0-9 - _` of the device ID are used in the folder name
+(at most 64). Files from a camera whose ID can't be determined go to
+`unknown/`. Files that are already on disk are not moved when you turn this on.
+
 ## Dashboard
 
 Access the dashboard at `http://YOUR_NAS_IP:3000/`. This is plain HTTP on
@@ -307,6 +328,13 @@ The camera authenticates via OAuth 2.0 Device Code Grant (the server
 auto-approves all codes), creates assets via JSON API, then uploads file
 chunks to presigned-style URLs that point back to the server itself. Unknown
 API calls are logged and return 200 so the camera never errors out.
+
+## Development
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
 
 ## Credits
 
